@@ -1,6 +1,5 @@
 # BTCPay Server
 
-
 ![BTCPay Server](BTCPayServer/wwwroot/img/btc_pay_BG_twitter.png)
 
 <h3 align="center">
