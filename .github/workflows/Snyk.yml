@@ -49,6 +49,11 @@ jobs:
         go-version: 'stable'
         cache: false
 
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
     - name: Install Snyk CLI & Reporter
       run: |
         npm install -g snyk snyk-to-html
@@ -63,25 +68,37 @@ jobs:
       run: |
         
         # 0. Smart Build & Install (CRITICAL for Snyk)
-        if [ -f "pom.xml" ]; then
-          echo "Compiling Java (Maven)..."
-          mvn package -DskipTests || true
-        fi
 
-        if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
-          echo "Compiling Java (Gradle)..."
+        # --- JAVA ---
+        if [ -f "pom.xml" ]; then
+          echo "📦 Compiling Java (Maven)..."
+          mvn package -DskipTests || true
+        elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+          echo "📦 Compiling Java (Gradle)..."
           chmod +x gradlew || true
           ./gradlew assemble -x test || true
         fi
 
+        # --- NODE.JS ---
         if [ -f "package.json" ]; then
-           echo "Installing Node deps..."
+           echo "📦 Installing Node deps..."
            npm install || true
         fi
 
+        # --- PYTHON ---
         if [ -f "requirements.txt" ]; then
-           echo "Installing Python deps..."
+           echo "📦 Installing Python deps..."
            pip install -r requirements.txt || true
+        fi
+
+        # --- .NET / C# (Nuovo supporto per BTCPay) ---
+        # Cerca file .sln o .csproj
+        if find . -name "*.sln" -o -name "*.csproj" | grep -q .; then
+           echo "📦 Detected .NET project. Restoring dependencies..."
+           # Setup .NET (nel caso l'immagine base non fosse aggiornata)
+           # Ma solitamente ubuntu-latest ha dotnet.
+           dotnet restore || true
+           dotnet build --no-incremental || true
         fi
 
         # 1. Run Snyk & Generate JSON (Human Readable)
@@ -129,7 +146,6 @@ jobs:
            # Check if SARIF was created (if not, Snyk likely crashed/failed execution)
            if not os.path.exists('snyk.sarif'):
                print('::error::Snyk failed to run correctly (No SARIF generated). Check logs for build errors.')
-               # Always fail if tool execution failed
                sys.exit(1)
 
            # Check the JSON results for blocking based on vulnerabilities
@@ -138,8 +154,10 @@ jobs:
                with open('snyk-results.json') as f:
                    try:
                        data = json.load(f)
+                       # Snyk può restituire una lista (multi-project) o un oggetto singolo
                        projects = data if isinstance(data, list) else [data]
                        for p in projects:
+                           # Se trova vulnerabilità (uniqueCount > 0)
                            if p.get('uniqueCount', 0) > 0:
                                found_vulns = True
                                break
